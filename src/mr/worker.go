@@ -51,7 +51,7 @@ func ReportTaskCall(task MrTask) {
 		if ok {
 			return
 		} else {
-			log.Fatalf("Get Task failed!\n")
+			log.Fatalf("Report Task failed!\n")
 		}
 	}
 }

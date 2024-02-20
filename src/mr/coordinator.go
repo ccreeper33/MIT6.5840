@@ -116,19 +116,15 @@ func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) e
 				c.state = reducing
 			} else if c.state == reducing {
 				c.CleanUp()
-				c.state = done
 
-				// send NoMoreTasks to pending workers
-				for fin := false; !fin; {
-					select {
-					case <-c.taskChannel:
-						fin = true
-					default:
+				// send NoMoreTasks to workers
+				go func() {
+					for {
 						c.taskChannel <- MrTask{Type: NoMoreTasks}
 					}
-				}
-				// send to the worker that reported the last task
-				c.taskChannel <- MrTask{Type: NoMoreTasks}
+				}()
+
+				c.state = done
 			}
 		}
 	} else {
@@ -227,6 +223,8 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
+	c.taskLock.Lock()
+	defer c.taskLock.Unlock()
 	return c.state == done
 }
 
