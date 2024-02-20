@@ -77,16 +77,14 @@ func (c *Coordinator) generateReduceTasks() {
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	_ = args
-	c.taskLock.Lock()
-	defer c.taskLock.Unlock()
-	if c.state == done {
-		reply.Task = MrTask{Type: NoMoreTasks}
-	} else {
-		task := <-c.taskChannel
+	task := <-c.taskChannel
+	if task.Type != NoMoreTasks {
+		c.taskLock.Lock()
+		defer c.taskLock.Unlock()
 		c.tasks[task.Type][task.Id].Status = InProgress
 		go c.taskTimeOut(&c.tasks[task.Type][task.Id])
-		reply.Task = task
 	}
+	reply.Task = task
 	return nil
 }
 
@@ -119,6 +117,18 @@ func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) e
 			} else if c.state == reducing {
 				c.CleanUp()
 				c.state = done
+
+				// send NoMoreTasks to pending workers
+				for fin := false; !fin; {
+					select {
+					case <-c.taskChannel:
+						fin = true
+					default:
+						c.taskChannel <- MrTask{Type: NoMoreTasks}
+					}
+				}
+				// send to the worker that reported the last task
+				c.taskChannel <- MrTask{Type: NoMoreTasks}
 			}
 		}
 	} else {

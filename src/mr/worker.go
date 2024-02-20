@@ -65,7 +65,7 @@ func Worker(mapFunc func(string, string) []KeyValue,
 			// read from input file
 			file, err := os.Open(task.InputFileName)
 			if err != nil {
-				log.Fatalf("cannot open %v", task.InputFileName)
+				log.Fatalf("cannot open input file %v", task.InputFileName)
 			}
 			content, err := io.ReadAll(file)
 			if err != nil {
@@ -124,7 +124,7 @@ func Worker(mapFunc func(string, string) []KeyValue,
 				interFileName := task.InterFileNames[i]
 				file, err := os.Open(interFileName)
 				if err != nil {
-					log.Fatalf("cannot open %v", interFileName)
+					log.Fatalf("cannot open intermediate file %v", interFileName)
 				}
 				content, err := io.ReadAll(file)
 				if err != nil {
