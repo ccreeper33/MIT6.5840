@@ -77,12 +77,12 @@ func (c *Coordinator) generateReduceTasks() {
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	_ = args
+	c.taskLock.Lock()
+	defer c.taskLock.Unlock()
 	if c.state == done {
 		reply.Task = MrTask{Type: NoMoreTasks}
 	} else {
 		task := <-c.taskChannel
-		c.taskLock.Lock()
-		defer c.taskLock.Unlock()
 		c.tasks[task.Type][task.Id].Status = InProgress
 		go c.taskTimeOut(&c.tasks[task.Type][task.Id])
 		reply.Task = task
@@ -118,7 +118,6 @@ func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) e
 				c.state = reducing
 			} else if c.state == reducing {
 				c.CleanUp()
-				time.Sleep(time.Second) // wait for workers to exit
 				c.state = done
 			}
 		}
