@@ -28,13 +28,8 @@ func ihash(key string) int {
 func getTaskCall() MrTask {
 
 	args := GetTaskArgs{}
-
 	reply := GetTaskReply{}
 
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
 	for {
 		ok := call("Coordinator.GetTask", &args, &reply)
 		if ok {
@@ -51,10 +46,6 @@ func ReportTaskCall(task MrTask) {
 	args.Task = task
 	reply := ReportTaskReply{}
 
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
 	for {
 		ok := call("Coordinator.ReportTask", &args, &reply)
 		if ok {
@@ -66,10 +57,8 @@ func ReportTaskCall(task MrTask) {
 }
 
 // main/mrworker.go calls this function.
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
-
-	// Your worker implementation here.
+func Worker(mapFunc func(string, string) []KeyValue,
+	reduceFunc func(string, []string) string) {
 	for {
 		task := getTaskCall()
 		if task.Type == Map {
@@ -88,7 +77,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 
 			// run map function
-			keyValues := mapf(task.InputFileName, string(content))
+			keyValues := mapFunc(task.InputFileName, string(content))
 
 			// split intermediate data into R(or NReduce) pieces
 			interDatas := make([][]KeyValue, 0)
@@ -100,7 +89,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				interDatas[index] = append(interDatas[index], kv)
 			}
 
-			// serialize and write file
+			// serialize and write intermediate file
 			for i := 0; i < task.NReduce; i++ {
 				var buffer bytes.Buffer
 				enc := gob.NewEncoder(&buffer)
@@ -124,9 +113,6 @@ func Worker(mapf func(string, string) []KeyValue,
 				task.InterFileNames = append(task.InterFileNames, interFileName)
 			}
 			task.Status = Completed
-
-			// report Task
-			ReportTaskCall(task)
 
 		} else if task.Type == Reduce {
 			// read and deserialize intermedia data
@@ -170,7 +156,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			// run reduce function
 			outputString := ""
 			for key, values := range kvMap {
-				outputString += fmt.Sprintf("%v %v\n", key, reducef(key, values))
+				outputString += fmt.Sprintf("%v %v\n", key, reduceFunc(key, values))
 			}
 
 			// write output file
@@ -190,38 +176,12 @@ func Worker(mapf func(string, string) []KeyValue,
 			task.OutputFileName = outputFileName
 			task.Status = Completed
 
-			// report task
-			ReportTaskCall(task)
 		} else if task.Type == NoMoreTasks {
 			os.Exit(0)
 		}
-	}
-}
 
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
-	ok := call("Coordinator.Example", &args, &reply)
-	if ok {
-		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
-	} else {
-		fmt.Printf("call failed!\n")
+		// report Task
+		ReportTaskCall(task)
 	}
 }
 

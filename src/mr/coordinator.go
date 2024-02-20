@@ -12,19 +12,18 @@ import (
 )
 
 type Coordinator struct {
-	// Your definitions here.
-	inputFiles    []string
-	nReduce       int              // number of reduce tasks
-	workerTimeOut time.Duration    // time to re-assign tasks, default 10s
-	state         coordinatorState // coordinator state
-	tasks         [][]MrTask       // mapreduce tasks, example: task[Map][taskId]
-	taskCount     int              // the number of tasks which are not completed
-	taskLock      sync.Mutex       // lock for update Task Status
-	taskChannel   chan MrTask      // channel to assign Idle tasks
+	inputFileNames []string
+	nReduce        int              // number of reduce tasks
+	workerTimeOut  time.Duration    // time to re-assign tasks, default 10s
+	state          coordinatorState // coordinator state
+	tasks          [][]MrTask       // mapreduce tasks, example: task[Map][taskId]
+	taskCount      int              // the number of tasks which are not completed
+	taskLock       sync.Mutex       // lock for update Task Status
+	taskChannel    chan MrTask      // channel to assign Idle tasks
 }
 
 func (c *Coordinator) generateMapTasks() {
-	taskNumber := len(c.inputFiles)
+	taskNumber := len(c.inputFileNames)
 	for i := 0; i < taskNumber; i++ {
 		task := MrTask{
 			Id:             i,
@@ -32,7 +31,7 @@ func (c *Coordinator) generateMapTasks() {
 			NReduce:        c.nReduce,
 			Type:           Map,
 			Status:         Idle,
-			InputFileName:  c.inputFiles[i],
+			InputFileName:  c.inputFileNames[i],
 			InterFileNames: make([]string, 0),
 		}
 		c.tasks[Map] = append(c.tasks[Map], task)
@@ -45,9 +44,8 @@ func (c *Coordinator) generateMapTasks() {
 }
 
 func (c *Coordinator) generateReduceTasks() {
-	mapTaskNumber := len(c.inputFiles)
+	mapTaskNumber := len(c.inputFileNames)
 	reduceTaskNumber := c.nReduce
-	c.taskCount = reduceTaskNumber
 
 	for i := 0; i < reduceTaskNumber; i++ {
 		task := MrTask{
@@ -56,11 +54,12 @@ func (c *Coordinator) generateReduceTasks() {
 			NReduce:        c.nReduce,
 			Type:           Reduce,
 			Status:         Idle,
-			InputFileName:  "",
 			InterFileNames: make([]string, 0),
 		}
 		c.tasks[Reduce] = append(c.tasks[Reduce], task)
 	}
+
+	// shuffle intermediate files
 	for mapIndex := 0; mapIndex < mapTaskNumber; mapIndex++ {
 		for reduceIndex := 0; reduceIndex < reduceTaskNumber; reduceIndex++ {
 			c.tasks[Reduce][reduceIndex].InterFileNames =
@@ -68,6 +67,8 @@ func (c *Coordinator) generateReduceTasks() {
 					c.tasks[Map][mapIndex].InterFileNames[reduceIndex])
 		}
 	}
+
+	c.taskCount = reduceTaskNumber
 	c.state = reducing
 	for _, task := range c.tasks[Reduce] {
 		c.taskChannel <- task
@@ -75,6 +76,7 @@ func (c *Coordinator) generateReduceTasks() {
 }
 
 func (c *Coordinator) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
+	_ = args
 	if c.state == done {
 		reply.Task = MrTask{Type: NoMoreTasks}
 	} else {
@@ -93,6 +95,7 @@ func (c *Coordinator) taskTimeOut(task *MrTask) {
 	c.taskLock.Lock()
 	defer c.taskLock.Unlock()
 	if task.Status != Completed {
+		// worker time out, create a new task
 		task.Status = Idle
 		task.CreateTime = time.Now().Unix()
 		c.taskChannel <- *task
@@ -100,12 +103,12 @@ func (c *Coordinator) taskTimeOut(task *MrTask) {
 }
 
 func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) error {
+	_ = reply
 	taskId := args.Task.Id
 	taskType := args.Task.Type
 	c.taskLock.Lock()
 	defer c.taskLock.Unlock()
-	if c.tasks[taskType][taskId].CreateTime ==
-		args.Task.CreateTime {
+	if c.tasks[taskType][taskId].CreateTime == args.Task.CreateTime {
 		// completed in time, take as valid report
 		c.tasks[taskType][taskId] = args.Task
 		c.taskCount--
@@ -115,6 +118,7 @@ func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) e
 				c.state = reducing
 			} else if c.state == reducing {
 				c.CleanUp()
+				time.Sleep(time.Second) // wait for workers to exit
 				c.state = done
 			}
 		}
@@ -129,6 +133,7 @@ func (c *Coordinator) ReportTask(args *ReportTaskArgs, reply *ReportTaskReply) e
 	return nil
 }
 
+// CleanUp - remove intermedia files & rename output files
 func (c *Coordinator) CleanUp() {
 	for _, task := range c.tasks[Reduce] {
 		deleteFiles(task.InterFileNames)
@@ -188,14 +193,6 @@ type MrTask struct {
 	OutputFileName string
 }
 
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
-
 // start a thread that listens for RPCs from worker.go
 func (c *Coordinator) server() {
 	err := rpc.Register(c)
@@ -229,13 +226,13 @@ func (c *Coordinator) Done() bool {
 // NReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
-		inputFiles:    files,
-		nReduce:       nReduce,
-		workerTimeOut: time.Second * 10,
-		state:         creating,
-		tasks:         [][]MrTask{make([]MrTask, 0), make([]MrTask, 0)},
-		taskLock:      sync.Mutex{},
-		taskChannel:   make(chan MrTask, max_(len(files), nReduce)+1),
+		inputFileNames: files,
+		nReduce:        nReduce,
+		workerTimeOut:  time.Second * 10,
+		state:          creating,
+		tasks:          [][]MrTask{make([]MrTask, 0), make([]MrTask, 0)},
+		taskLock:       sync.Mutex{},
+		taskChannel:    make(chan MrTask, max_(len(files), nReduce)+1),
 	}
 	c.taskLock.Lock()
 	c.generateMapTasks()
@@ -244,7 +241,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	return &c
 }
 
-// do not exist on Go 1.15 , damn
+// do not exist on Go 1.15
 func max_(x, y int) int {
 	if x > y {
 		return x
