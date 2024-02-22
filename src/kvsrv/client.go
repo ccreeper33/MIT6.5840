@@ -5,21 +5,23 @@ import "crypto/rand"
 import "math/big"
 
 type Clerk struct {
-	server *labrpc.ClientEnd
-	// You will have to modify this struct.
+	server      *labrpc.ClientEnd
+	id          int64
+	operationId int64
 }
 
-func nrand() int64 {
-	max := big.NewInt(int64(1) << 62)
-	bigx, _ := rand.Int(rand.Reader, max)
-	x := bigx.Int64()
+func nRand() int64 {
+	max_ := big.NewInt(int64(1) << 62)
+	bigX, _ := rand.Int(rand.Reader, max_)
+	x := bigX.Int64()
 	return x
 }
 
 func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.server = server
-	// You'll have to add code here.
+	ck.id = nRand()
+	ck.operationId = 0
 	return ck
 }
 
@@ -34,14 +36,18 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) (value string) {
-	DPrintf("start Get")
-	args := GetArgs{}
-	args.Key = key
-	reply := GetReply{}
-
-	ok := ck.server.Call("KVServer.Get", &args, &reply)
-	if ok {
-		value = reply.Value
+	for done := false; !done; {
+		args := GetArgs{}
+		args.Key = key
+		args.ClerkId = ck.id
+		args.OperationId = ck.operationId
+		reply := GetReply{}
+		ok := ck.server.Call("KVServer.Get", &args, &reply)
+		if ok {
+			value = reply.Value
+			ck.operationId++
+			done = true
+		}
 	}
 	return
 }
@@ -54,18 +60,22 @@ func (ck *Clerk) Get(key string) (value string) {
 // the types of args and reply (including whether they are pointers)
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
-func (ck *Clerk) PutAppend(key string, value string, op string) string {
-	// You will have to modify this function.
-	args := PutAppendArgs{}
-	args.Key = key
-	args.Value = value
-	reply := PutAppendReply{}
-	ok := ck.server.Call("KVServer."+op, &args, &reply)
-	if ok {
-		return reply.Value
-	} else {
-		return ""
+func (ck *Clerk) PutAppend(key string, value string, op string) (oldValue string) {
+	for done := false; !done; {
+		args := PutAppendArgs{}
+		args.Key = key
+		args.Value = value
+		args.ClerkId = ck.id
+		args.OperationId = ck.operationId
+		reply := PutAppendReply{}
+		ok := ck.server.Call("KVServer."+op, &args, &reply)
+		if ok {
+			oldValue = reply.Value
+			ck.operationId++
+			done = true
+		}
 	}
+	return
 }
 
 func (ck *Clerk) Put(key string, value string) {
